@@ -1,4 +1,4 @@
-from diffusers import ControlNetModel, DiffusionPipeline, AutoencoderKL
+from diffusers import ControlNetModel, DiffusionPipeline, AutoencoderKL, AutoPipelineForInpainting
 import torch
 from RealESRGAN import RealESRGAN
 
@@ -8,6 +8,7 @@ for scale in [2, 4]:
     model.load_weights(f"weights/RealESRGAN_x{scale}.pth", download=True)
 
 SD15_WEIGHTS = "weights"
+INPAINT_WEIGHTS = "inpaint-cache"
 CONTROLNET_CACHE = "controlnet-cache"
 
 controlnet = ControlNetModel.from_pretrained(
@@ -22,3 +23,7 @@ pipe = DiffusionPipeline.from_pretrained(
 )
 pipe.save_pretrained(SD15_WEIGHTS)
 
+pipe = AutoPipelineForInpainting.from_pretrained(
+    "runwayml/stable-diffusion-inpainting", torch_dtype=torch.float16, variant="fp16", cache_dir=INPAINT_WEIGHTS
+)
+pipe.save_pretrained(INPAINT_WEIGHTS)

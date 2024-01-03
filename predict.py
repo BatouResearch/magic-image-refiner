@@ -8,6 +8,7 @@ from cog import BasePredictor, Input, Path
 from diffusers.utils import load_image
 from diffusers import (
     StableDiffusionControlNetImg2ImgPipeline,
+    StableDiffusionControlNetInpaintPipeline,
     ControlNetModel,
     StableDiffusionPipeline,
     DDIMScheduler,
@@ -28,7 +29,7 @@ SCHEDULERS = {
 
 SD15_WEIGHTS = "weights"
 CONTROLNET_CACHE = "controlnet-cache"
-
+INPAINT_WEIGHTS = "inpaint-cache"
 
 class Predictor(BasePredictor):
     def setup(self):
@@ -43,8 +44,14 @@ class Predictor(BasePredictor):
             torch_dtype=torch.float16
         )
 
-        self.pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
+        self.img2img_pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
             SD15_WEIGHTS,
+            torch_dtype=torch.float16,
+            controlnet=controlnet
+        ).to("cuda")
+
+        self.inpaint_pipe = StableDiffusionControlNetInpaintPipeline.from_pretrained(
+            INPAINT_WEIGHTS,
             torch_dtype=torch.float16,
             controlnet=controlnet
         ).to("cuda")
@@ -60,26 +67,17 @@ class Predictor(BasePredictor):
         print("Setup complete in %f" % (time.time() - st))
 
     def resize_for_condition_image(self, input_image, resolution):
-        scale = 2
-        if (resolution == 2048) :
-            init_w = 1024
-        elif (resolution == 2560) :
-            init_w = 1280
-        elif (resolution == 3072):
-            init_w = 1536
-        else:
-            init_w = 1024
-            scale = 4
-        input_image = input_image.convert("RGB")
-        W, H = input_image.size
-        k = float(init_w) / min(H, W)
-        H *= k
-        W *= k
-        H = int(round(H / 64.0)) * 64
-        W = int(round(W / 64.0)) * 64
-        img = input_image.resize((W, H), resample=Image.LANCZOS)
-        model = self.ESRGAN_models[scale]
-        img = model.predict(img)
+        if resolution == "original":
+            return input_image.copy()
+
+        img = input_image.convert("RGB")
+        width, height = input_image.size
+        scale_factor = float(1024) / min(height, width)
+        new_height, new_width = int(round(height * scale_factor / 64)) * 64, int(round(width * scale_factor / 64)) * 64
+        img = img.resize((new_width, new_height), resample=Image.LANCZOS)
+        if resolution == "2048":
+            model = self.ESRGAN_models[self.RESIZE_FACTORS[resolution]]
+            img = model.predict(img)
         return img
     
     def calculate_brightness_factors(self, hdr_intensity):
@@ -101,17 +99,13 @@ class Predictor(BasePredictor):
         return cv2.cvtColor(adjusted_hsv, cv2.COLOR_HSV2BGR)
 
     def create_hdr_effect(self, original_image, hdr):
-        # Convert PIL image to OpenCV format
         cv_original = self.pil_to_cv(original_image)
-        
         brightness_factors = self.calculate_brightness_factors(hdr)
         images = [self.adjust_brightness(cv_original, factor) for factor in brightness_factors]
-
         merge_mertens = cv2.createMergeMertens()
         hdr_image = merge_mertens.process(images)
         hdr_image_8bit = np.clip(hdr_image*255, 0, 255).astype('uint8')
         hdr_image_pil = Image.fromarray(cv2.cvtColor(hdr_image_8bit, cv2.COLOR_BGR2RGB))
-
         return hdr_image_pil
 
     def load_image(self, path):
@@ -126,23 +120,27 @@ class Predictor(BasePredictor):
             default=None
         ),
         image: Path = Input(
-            description="Control image for scribble controlnet", 
+            description="Image to refine",
             default=None
         ),
-        resolution: int = Input(
+        mask: Path = Input(
+            description="When provided, refines some section of the image. Must be the same size as the image",
+            default=None
+        ),
+        resolution: str = Input(
             description="Image resolution",
-            default=2048,
-            choices=[2048,2560]
+            default="original",
+            choices=["original", "1024", "2048"]
         ),
         resemblance: float = Input(
             description="Conditioning scale for controlnet",
-            default=0.5,
+            default=0.75,
             ge=0,
             le=1,
         ),
         creativity: float = Input(
             description="Denoising strength. 1 means total destruction of the original image",
-            default=0.5,
+            default=0.25,
             ge=0,
             le=1,
         ),
@@ -169,7 +167,7 @@ class Predictor(BasePredictor):
         seed: int = Input(
             description="Seed", default=None
         ),
-        negative_prompt: str = Input(  # FIXME
+        negative_prompt: str = Input(
             description="Negative prompt",
             default="teeth, tooth, open mouth, longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, mutant",
         ),
@@ -183,7 +181,6 @@ class Predictor(BasePredictor):
             seed = int.from_bytes(os.urandom(2), "big")
         print(f"Using seed: {seed}")
 
-        self.pipe.scheduler = SCHEDULERS[scheduler].from_config(self.pipe.scheduler.config)
         generator = torch.Generator("cuda").manual_seed(seed)
         loaded_image = self.load_image(image)
         control_image = self.resize_for_condition_image(loaded_image, resolution)
@@ -201,16 +198,20 @@ class Predictor(BasePredictor):
             "num_inference_steps": steps,
             "guess_mode": guess_mode,
         }
-        
-        w,h = control_image.size
-        
-        if (w*h > 2560*2560):
-            self.pipe.enable_vae_tiling()
-        else:
-            self.pipe.disable_vae_tiling()
-        
-        self.pipe.enable_xformers_memory_efficient_attention()
-        outputs = self.pipe(**args)
+        pipe = self.img2img_pipe
+
+        if (mask):
+            pipe = self.inpaint_pipe
+            mask_image = self.load_image(mask)
+            args["mask"] = mask_image
+            if (resolution != "original"):
+                raise Exception("Can't upscale and inpaint at the same time")
+            if (mask_image.size != load_image.size):
+                raise Exception("Image and mask must have the same size")
+
+        pipe.scheduler = SCHEDULERS[scheduler].from_config(pipe.scheduler.config)
+        pipe.enable_xformers_memory_efficient_attention()
+        outputs = pipe(**args)
         output_paths = []
         for i, sample in enumerate(outputs.images):
             output_path = f"/tmp/out-{i}.png"
