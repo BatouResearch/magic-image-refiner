@@ -151,7 +151,7 @@ class Predictor(BasePredictor):
             le=1,
         ),
         scheduler: str = Input(
-            default="DPMSolverMultistep",
+            default="DDIM",
             choices=SCHEDULERS.keys(),
             description="Choose a scheduler.",
         ),
