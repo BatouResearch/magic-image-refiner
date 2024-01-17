@@ -34,7 +34,6 @@ ADAPTER_CACHE = "adapter-cache"
 
 class Predictor(BasePredictor):
     def setup(self):
-
         """Load the model into memory to make running multiple predictions efficient"""
 
         print("Loading pipeline...")
@@ -78,7 +77,7 @@ class Predictor(BasePredictor):
         new_height, new_width = int(round(height * scale_factor / 64)) * 64, int(round(width * scale_factor / 64)) * 64
         img = img.resize((new_width, new_height), resample=Image.LANCZOS)
         if resolution == "2048":
-            model = self.ESRGAN_models[self.RESIZE_FACTORS[resolution]]
+            model = self.ESRGAN_models[2]
             img = model.predict(img)
         return img
     
@@ -209,10 +208,10 @@ class Predictor(BasePredictor):
         if (mask):
             pipe = self.inpaint_pipe
             mask_image = self.load_image(mask)
-            args["mask"] = mask_image
+            args["mask_image"] = mask_image
             if (resolution != "original"):
                 raise Exception("Can't upscale and inpaint at the same time")
-            if (mask_image.size != load_image.size):
+            if (mask_image.size != loaded_image.size):
                 raise Exception("Image and mask must have the same size")
 
         if (ip_adapter_image):
@@ -228,6 +227,8 @@ class Predictor(BasePredictor):
             pipe.unload_ip_adapter()
             self.adapter_on = False
 
+                
+        pipe.safety_checker = None
         pipe.scheduler = SCHEDULERS[scheduler].from_config(pipe.scheduler.config)
         pipe.enable_xformers_memory_efficient_attention()
         outputs = pipe(**args)
