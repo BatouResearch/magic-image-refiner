@@ -30,6 +30,7 @@ SCHEDULERS = {
 SD15_WEIGHTS = "weights"
 CONTROLNET_CACHE = "controlnet-cache"
 INPAINT_WEIGHTS = "inpaint-cache"
+ADAPTER_CACHE = "adapter-cache"
 
 class Predictor(BasePredictor):
     def setup(self):
@@ -57,6 +58,7 @@ class Predictor(BasePredictor):
         ).to("cuda")
 
         self.ESRGAN_models = {}
+        self.adapter_on = False
 
         for scale in [2, 4]:
             self.ESRGAN_models[scale] = RealESRGAN("cuda", scale=scale)
@@ -121,6 +123,10 @@ class Predictor(BasePredictor):
         ),
         image: Path = Input(
             description="Image to refine",
+            default=None
+        ),
+        ip_adapter_image : Path = Input(
+            description="Prompt the generation with this image using IP-Adapter",
             default=None
         ),
         mask: Path = Input(
@@ -208,6 +214,19 @@ class Predictor(BasePredictor):
                 raise Exception("Can't upscale and inpaint at the same time")
             if (mask_image.size != load_image.size):
                 raise Exception("Image and mask must have the same size")
+
+        if (ip_adapter_image):
+            ip_image = self.load_image(ip_adapter_image)
+            args["ip_adapter_image"] = ip_image
+            if (not self.adapter_on):
+                print("Loading IP-Adapter pipeline...")
+                pipe.load_ip_adapter(ADAPTER_CACHE)
+                self.adapter_on = True
+
+        elif (self.adapter_on):
+            print("Unloading IP-Adapter pipeline...")
+            pipe.unload_ip_adapter()
+            self.adapter_on = False
 
         pipe.scheduler = SCHEDULERS[scheduler].from_config(pipe.scheduler.config)
         pipe.enable_xformers_memory_efficient_attention()
