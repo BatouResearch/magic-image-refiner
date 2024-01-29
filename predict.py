@@ -182,7 +182,7 @@ class Predictor(BasePredictor):
         args = {
             "prompt": prompt,
             "image": final_image,
-            "control_image": final_image,
+            "control_image": [final_image, final_image],
             "strength": creativity,
             "controlnet_conditioning_scale": [resemblance, 0.5],
             "negative_prompt": negative_prompt,
