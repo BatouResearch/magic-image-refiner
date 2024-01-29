@@ -2,6 +2,7 @@ import torch
 import os
 from typing import List
 import shutil
+from PIL import Image
 import time
 from cog import BasePredictor, Input, Path
 from diffusers.utils import load_image
@@ -144,9 +145,12 @@ class Predictor(BasePredictor):
         loaded_image = self.load_image(image)
         og_resolution = loaded_image.size
         control_image = image_util.resize_for_condition_image(loaded_image, resolution)
+        print(og_resolution, control_image.size)
         control_depth_image = self.annotator(control_image, detect_resolution=512, image_resolution=control_image.size[1])
         if (resolution == "original"):
-            control_depth_image = image_util.resize_for_condition_image(control_depth_image, og_resolution[0])
+            control_image = control_image.resize(og_resolution, resample=Image.LANCZOS)
+            control_depth_image = control_depth_image.resize(og_resolution, resample=Image.LANCZOS)
+        print(control_image.size, control_depth_image.size)
 
         final_image = image_util.create_hdr_effect(control_image, hdr)
         

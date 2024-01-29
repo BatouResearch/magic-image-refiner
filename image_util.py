@@ -7,8 +7,7 @@ def resize_to_multiple_of_64(img):
     # Calculate new dimensions, rounding up to the nearest multiple of 64
     new_width = (img.width + 63) // 64 * 64
     new_height = (img.height + 63) // 64 * 64
-    new_img = Image.new("RGB", (new_width, new_height), color="white")
-    new_img.paste(img, (0, 0))
+    new_img = img.resize((new_width, new_height), resample=Image.LANCZOS)
     return new_img
 
 
