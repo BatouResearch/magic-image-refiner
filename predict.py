@@ -15,9 +15,6 @@ from diffusers import (
     EulerAncestralDiscreteScheduler,
     EulerDiscreteScheduler,
 )
-from PIL import Image, ImageEnhance
-import cv2
-import numpy as np
 from controlnet_aux.midas import MidasDetector
 import image_util
 
@@ -145,8 +142,12 @@ class Predictor(BasePredictor):
 
         generator = torch.Generator("cuda").manual_seed(seed)
         loaded_image = self.load_image(image)
+        og_resolution = loaded_image.size
         control_image = image_util.resize_for_condition_image(loaded_image, resolution)
-        control_depth_image = self.annotator(control_image, detect_resolution=512, image_resolution=1024)
+        control_depth_image = self.annotator(control_image, detect_resolution=512, image_resolution=control_image.size[1])
+        if (resolution == "original"):
+            control_depth_image = image_util.resize_for_condition_image(control_depth_image, og_resolution[0])
+
         final_image = image_util.create_hdr_effect(control_image, hdr)
         
         args = {
