@@ -69,14 +69,14 @@ class Predictor(BasePredictor):
 
     def resize_for_condition_image(self, input_image, resolution):
         if resolution == "original":
-            return input_image.copy()
+            return input_image.copy(), input_image.size[0]
 
         img = input_image.convert("RGB")
         width, height = input_image.size
         scale_factor = float(int(resolution)) / min(height, width)
         new_height, new_width = int(round(height * scale_factor / 64)) * 64, int(round(width * scale_factor / 64)) * 64
         img = img.resize((new_width, new_height), resample=Image.LANCZOS)
-        return img
+        return img, int(resolution)
     
     def calculate_brightness_factors(self, hdr_intensity):
         factors = [1.0] * 9
@@ -181,9 +181,8 @@ class Predictor(BasePredictor):
 
         generator = torch.Generator("cuda").manual_seed(seed)
         loaded_image = self.load_image(image)
-        control_image = self.resize_for_condition_image(loaded_image, resolution)
-        control_depth_image = self.midas(control_image)
-        control_depth_image.save("control_depth_image.jpg")
+        control_image, resolution = self.resize_for_condition_image(loaded_image, resolution)
+        control_depth_image = self.midas(control_image, detect_resolution=512, image_resolution=resolution)
         final_image = self.create_hdr_effect(control_image, hdr)
         
         args = {
@@ -191,7 +190,7 @@ class Predictor(BasePredictor):
             "image": final_image,
             "control_image": [final_image, control_depth_image],
             "strength": creativity,
-            "controlnet_conditioning_scale": [resemblance, 0.5],
+            "controlnet_conditioning_scale": [resemblance, 1],
             "negative_prompt": negative_prompt,
             "guidance_scale": guidance_scale,
             "generator": generator,
@@ -212,6 +211,7 @@ class Predictor(BasePredictor):
         pipe.safety_checker = None
         pipe.scheduler = SCHEDULERS[scheduler].from_config(pipe.scheduler.config)
         pipe.enable_xformers_memory_efficient_attention()
+        pipe.enable_sequential_cpu_offload()
         outputs = pipe(**args)
         output_paths = []
         for i, sample in enumerate(outputs.images):
