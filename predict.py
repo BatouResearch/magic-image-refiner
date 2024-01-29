@@ -49,7 +49,9 @@ class Predictor(BasePredictor):
             torch_dtype=torch.float16
         )]
 
-        self.midas = MidasDetector.from_pretrained(MODEL_ANNOTATOR_CACHE)
+        self.annotator = MidasDetector.from_pretrained(
+            MODEL_ANNOTATOR_CACHE, filename="dpt_large_384.pt", model_type="dpt_large"
+        ).to("cuda")
 
         self.img2img_pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
             SD15_WEIGHTS,

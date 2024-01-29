@@ -1,5 +1,7 @@
 from diffusers import ControlNetModel, DiffusionPipeline, AutoencoderKL, AutoPipelineForInpainting
-from controlnet_aux.midas import MidasDetector
+import os
+import subprocess
+import tarfile
 import torch
 
 SD15_WEIGHTS = "weights"
@@ -8,11 +10,23 @@ TILE_CACHE = "tile-cache"
 DEPTH_CACHE = "depth-cache"
 ADAPTER_CACHE = "adapter-cache"
 MODEL_ANNOTATOR_CACHE = "annotator-cache"
+midas_url = "https://weights.replicate.delivery/default/T2I-Adapter-SDXL/t2i-depth-midas-annotator.tar"
 
-annotator = MidasDetector.from_pretrained(
-    "lllyasviel/Annotators", cache_dir=MODEL_ANNOTATOR_CACHE
-)
-annotator.save_pretrained(MODEL_ANNOTATOR_CACHE)
+def download_and_extract(url: str, dest: str):
+    try:
+        if os.path.exists("/src/tmp.tar"):
+            subprocess.check_call(["rm", "/src/tmp.tar"])
+        subprocess.check_call(["pget", url, "/src/tmp.tar"])
+    except subprocess.CalledProcessError as e:
+        print(e.output)
+        raise e
+    tar = tarfile.open("/src/tmp.tar")
+    tar.extractall(dest)
+    tar.close()
+    os.remove("/src/tmp.tar")
+
+os.makedirs(MODEL_ANNOTATOR_CACHE)
+download_and_extract(midas_url, MODEL_ANNOTATOR_CACHE)
 
 controlnet = ControlNetModel.from_pretrained(
     "lllyasviel/control_v11f1e_sd15_tile", torch_dtype=torch.float16, cache_dir=TILE_CACHE
