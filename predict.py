@@ -1,7 +1,6 @@
 import torch
 import os
 from typing import List
-from RealESRGAN import RealESRGAN
 import shutil
 import time
 from cog import BasePredictor, Input, Path
@@ -19,6 +18,7 @@ from diffusers import (
 from PIL import Image, ImageEnhance
 import cv2
 import numpy as np
+from controlnet_aux.midas import MidasDetector
 
 SCHEDULERS = {
     "DDIM": DDIMScheduler,
@@ -31,6 +31,7 @@ SD15_WEIGHTS = "weights"
 INPAINT_WEIGHTS = "inpaint-cache"
 TILE_CACHE = "tile-cache"
 DEPTH_CACHE = "depth-cache"
+MODEL_ANNOTATOR_CACHE = "annotator-cache"
 
 class Predictor(BasePredictor):
     def setup(self):
@@ -47,6 +48,8 @@ class Predictor(BasePredictor):
             DEPTH_CACHE,
             torch_dtype=torch.float16
         )]
+
+        self.midas = MidasDetector.from_pretrained(MODEL_ANNOTATOR_CACHE)
 
         self.img2img_pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
             SD15_WEIGHTS,
@@ -177,12 +180,14 @@ class Predictor(BasePredictor):
         generator = torch.Generator("cuda").manual_seed(seed)
         loaded_image = self.load_image(image)
         control_image = self.resize_for_condition_image(loaded_image, resolution)
+        control_depth_image = self.midas(control_image)
+        control_depth_image.save("control_depth_image.jpg")
         final_image = self.create_hdr_effect(control_image, hdr)
         
         args = {
             "prompt": prompt,
             "image": final_image,
-            "control_image": [final_image, final_image],
+            "control_image": [final_image, control_depth_image],
             "strength": creativity,
             "controlnet_conditioning_scale": [resemblance, 0.5],
             "negative_prompt": negative_prompt,
