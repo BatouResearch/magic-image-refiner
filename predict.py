@@ -28,8 +28,9 @@ SCHEDULERS = {
 }
 
 SD15_WEIGHTS = "weights"
-CONTROLNET_CACHE = "controlnet-cache"
 INPAINT_WEIGHTS = "inpaint-cache"
+TILE_CACHE = "tile-cache"
+DEPTH_CACHE = "depth-cache"
 
 class Predictor(BasePredictor):
     def setup(self):
@@ -38,10 +39,14 @@ class Predictor(BasePredictor):
         print("Loading pipeline...")
         st = time.time()
 
-        controlnet = ControlNetModel.from_pretrained(
-            CONTROLNET_CACHE,
+        controlnet = [ControlNetModel.from_pretrained(
+            TILE_CACHE,
             torch_dtype=torch.float16
-        )
+        ),
+        ControlNetModel.from_pretrained(
+            DEPTH_CACHE,
+            torch_dtype=torch.float16
+        )]
 
         self.img2img_pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
             SD15_WEIGHTS,
@@ -55,14 +60,6 @@ class Predictor(BasePredictor):
             controlnet=controlnet
         ).to("cuda")
 
-        self.ESRGAN_models = {}
-
-        for scale in [2, 4]:
-            self.ESRGAN_models[scale] = RealESRGAN("cuda", scale=scale)
-            self.ESRGAN_models[scale].load_weights(
-                f"weights/RealESRGAN_x{scale}.pth", download=False
-            )
-
         print("Setup complete in %f" % (time.time() - st))
 
     def resize_for_condition_image(self, input_image, resolution):
@@ -71,12 +68,9 @@ class Predictor(BasePredictor):
 
         img = input_image.convert("RGB")
         width, height = input_image.size
-        scale_factor = float(1024) / min(height, width)
+        scale_factor = float(int(resolution)) / min(height, width)
         new_height, new_width = int(round(height * scale_factor / 64)) * 64, int(round(width * scale_factor / 64)) * 64
         img = img.resize((new_width, new_height), resample=Image.LANCZOS)
-        if resolution == "2048":
-            model = self.ESRGAN_models[2]
-            img = model.predict(img)
         return img
     
     def calculate_brightness_factors(self, hdr_intensity):
