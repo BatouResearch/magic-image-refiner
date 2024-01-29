@@ -10,9 +10,8 @@ ADAPTER_CACHE = "adapter-cache"
 MODEL_ANNOTATOR_CACHE = "annotator-cache"
 
 annotator = MidasDetector.from_pretrained(
-    "lllyasviel/Annotators", cache_dir=MODEL_ANNOTATOR_CACHE
+    "lllyasviel/Annotators", cache_dir=MODEL_ANNOTATOR_CACHE, 
 )
-annotator.save_pretrained(MODEL_ANNOTATOR_CACHE)
 
 controlnet = ControlNetModel.from_pretrained(
     "lllyasviel/control_v11f1e_sd15_tile", torch_dtype=torch.float16, cache_dir=TILE_CACHE
