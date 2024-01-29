@@ -19,6 +19,7 @@ from PIL import Image, ImageEnhance
 import cv2
 import numpy as np
 from controlnet_aux.midas import MidasDetector
+import image_util
 
 SCHEDULERS = {
     "DDIM": DDIMScheduler,
@@ -40,14 +41,16 @@ class Predictor(BasePredictor):
         print("Loading pipeline...")
         st = time.time()
 
-        controlnet = [ControlNetModel.from_pretrained(
-            TILE_CACHE,
-            torch_dtype=torch.float16
-        ),
-        ControlNetModel.from_pretrained(
-            DEPTH_CACHE,
-            torch_dtype=torch.float16
-        )]
+        controlnet = [
+            ControlNetModel.from_pretrained(
+                TILE_CACHE,
+                torch_dtype=torch.float16
+            ),
+            ControlNetModel.from_pretrained(
+                DEPTH_CACHE,
+                torch_dtype=torch.float16
+            )
+        ]
 
         self.annotator = MidasDetector.from_pretrained(
             MODEL_ANNOTATOR_CACHE, filename="dpt_large_384.pt", model_type="dpt_large"
@@ -66,45 +69,6 @@ class Predictor(BasePredictor):
         ).to("cuda")
 
         print("Setup complete in %f" % (time.time() - st))
-
-    def resize_for_condition_image(self, input_image, resolution):
-        if resolution == "original":
-            return input_image.copy(), input_image.size[0]
-
-        img = input_image.convert("RGB")
-        width, height = input_image.size
-        scale_factor = float(int(resolution)) / min(height, width)
-        new_height, new_width = int(round(height * scale_factor / 64)) * 64, int(round(width * scale_factor / 64)) * 64
-        img = img.resize((new_width, new_height), resample=Image.LANCZOS)
-        return img, int(resolution)
-    
-    def calculate_brightness_factors(self, hdr_intensity):
-        factors = [1.0] * 9
-        if hdr_intensity > 0:
-            factors = [1.0 - 0.9 * hdr_intensity, 1.0 - 0.7 * hdr_intensity, 1.0 - 0.45 * hdr_intensity,
-                       1.0 - 0.25 * hdr_intensity, 1.0, 1.0 + 0.2 * hdr_intensity,
-                       1.0 + 0.4 * hdr_intensity, 1.0 + 0.6 * hdr_intensity, 1.0 + 0.8 * hdr_intensity]
-        return factors
-    
-    def pil_to_cv(self, pil_image):
-        return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-
-    def adjust_brightness(self, cv_image, factor):
-        hsv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
-        h, s, v = cv2.split(hsv_image)
-        v = np.clip(v * factor, 0, 255).astype('uint8')
-        adjusted_hsv = cv2.merge([h, s, v])
-        return cv2.cvtColor(adjusted_hsv, cv2.COLOR_HSV2BGR)
-
-    def create_hdr_effect(self, original_image, hdr):
-        cv_original = self.pil_to_cv(original_image)
-        brightness_factors = self.calculate_brightness_factors(hdr)
-        images = [self.adjust_brightness(cv_original, factor) for factor in brightness_factors]
-        merge_mertens = cv2.createMergeMertens()
-        hdr_image = merge_mertens.process(images)
-        hdr_image_8bit = np.clip(hdr_image*255, 0, 255).astype('uint8')
-        hdr_image_pil = Image.fromarray(cv2.cvtColor(hdr_image_8bit, cv2.COLOR_BGR2RGB))
-        return hdr_image_pil
 
     def load_image(self, path):
         shutil.copyfile(path, "/tmp/image.png")
@@ -181,9 +145,9 @@ class Predictor(BasePredictor):
 
         generator = torch.Generator("cuda").manual_seed(seed)
         loaded_image = self.load_image(image)
-        control_image, resolution = self.resize_for_condition_image(loaded_image, resolution)
-        control_depth_image = self.midas(control_image, detect_resolution=512, image_resolution=resolution)
-        final_image = self.create_hdr_effect(control_image, hdr)
+        control_image = image_util.resize_for_condition_image(loaded_image, resolution)
+        control_depth_image = self.annotator(control_image, detect_resolution=512, image_resolution=1024)
+        final_image = image_util.create_hdr_effect(control_image, hdr)
         
         args = {
             "prompt": prompt,

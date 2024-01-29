@@ -15,17 +15,20 @@ midas_url = "https://weights.replicate.delivery/default/T2I-Adapter-SDXL/t2i-dep
 def download_and_extract(url: str, dest: str):
     try:
         if os.path.exists("/src/tmp.tar"):
-            subprocess.check_call(["rm", "/src/tmp.tar"])
-        subprocess.check_call(["pget", url, "/src/tmp.tar"])
+            os.remove("/src/tmp.tar")
+        subprocess.check_call(["wget", "-O", "/src/tmp.tar", url])
     except subprocess.CalledProcessError as e:
         print(e.output)
         raise e
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        raise e
+
     tar = tarfile.open("/src/tmp.tar")
     tar.extractall(dest)
     tar.close()
     os.remove("/src/tmp.tar")
 
-os.makedirs(MODEL_ANNOTATOR_CACHE)
 download_and_extract(midas_url, MODEL_ANNOTATOR_CACHE)
 
 controlnet = ControlNetModel.from_pretrained(
