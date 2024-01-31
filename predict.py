@@ -182,7 +182,7 @@ class Predictor(BasePredictor):
         pipe.safety_checker = None
         pipe.scheduler = SCHEDULERS[scheduler].from_config(pipe.scheduler.config)
         pipe.enable_xformers_memory_efficient_attention()
-        pipe.enable_sequential_cpu_offload()
+        #pipe.enable_sequential_cpu_offload()
         outputs = pipe(**args)
         output_paths = []
         for i, sample in enumerate(outputs.images):
